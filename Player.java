@@ -1,577 +1,547 @@
+import java.util.ArrayList;
 import java.util.Scanner;
 
 class Player {
+    /*map width, map height */
+    static int w = 30, h = 15;
 
-    final static int radarCoverageSize = 4;
-    final static int maxMoveSteps = 4;
-    final static int spawnThreshold = 1; // could also be tested at '4', although the probability of it is low.
-    final static int amountOfRobots = 5;
-    static int w, h;
+    /*my score, enemy score*/
+    static int ms, es;
 
-    static int currentTick = 0;
+    private static final int THRESHOLD = 2;
+    private static final int MAX_MOVE_DISTANCE = 4;
+    private static final int RADAR_DIST = 4;
 
-    static Robot[] own_robots = new Robot[amountOfRobots];
-    static Robot[] enemy_robots = new Robot[amountOfRobots];
-
-
-    enum Item {
-        Nothing, Radar, Trap, Ore
-    }
-
-    enum EntityType {
-        Own_Robot, Enemy_Robot, buried_radar, buried_trap
-    }
-
+    //    static int[][] assignedOreMap;
+    static Vector[] enemyPos = new Vector[5];
+    static Vector[] preEnemyPos = new Vector[5];
 
     public static void main(String[] args) {
+
+
         Scanner sc = new Scanner(System.in);
-        int width = sc.nextInt();
-        int height = sc.nextInt();
-        w = width;
-        h = height;
+        w = sc.nextInt();
+        h = sc.nextInt();
+        int[][] radarMap = new int[w][h];
+        int[][] trapMap = new int[w][h];
+        int[][] oreMap = new int[w][h];
+        int[][] holeMap = new int[w][h];
+        int[][] radarCoverageMap = new int[w][h];
+        int[][] enemyHoleMap = new int[w][h];
+        int[][] isInsideRadar = new int[w][h];
+        int[][] assignedOreMap = new int[w][h];
+        Grid grid = new Grid(oreMap, holeMap, trapMap, assignedOreMap, radarMap, radarCoverageMap, enemyHoleMap, isInsideRadar);
 
-        Grid map = new Grid(w, h);
-
-
-        for (int i = 0; i < own_robots.length; i++) {
-            own_robots[i] = new Robot(map, -1, EntityType.Own_Robot, new Vector(0, (height / amountOfRobots) * i), Item.Nothing, 0, 0);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                radarCoverageMap[x][y] = getAmountOfNewRadarCoverage(grid, RADAR_DIST, new Vector(x, y));
+                isInsideRadar[x][y] = 0;
+            }
+        }
+        Robot[] own_robots = new Robot[5];
+        own_robots[0] = new Robot(-1, EntityType.OWN_ROBOT, new Vector(0, 2), Item.NOTHING);
+        own_robots[1] = new Robot(-1, EntityType.OWN_ROBOT, new Vector(0, 5), Item.NOTHING);
+        own_robots[2] = new Robot(-1, EntityType.OWN_ROBOT, new Vector(0, 8), Item.NOTHING);
+        own_robots[3] = new Robot(-1, EntityType.OWN_ROBOT, new Vector(0, 11), Item.NOTHING);
+        own_robots[4] = new Robot(-1, EntityType.OWN_ROBOT, new Vector(0, 14), Item.NOTHING);
+        for (int i = 0; i < enemyPos.length; i++) {
+            enemyPos[i] = new Vector(-1, -1);
+            preEnemyPos[i] = new Vector(-1, -1);
         }
         while (true) {
-
-            int myScore = sc.nextInt();
-            int enemyScore = sc.nextInt();
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    String oreAmount = sc.next();
-                    boolean isHole = sc.nextInt() == 1;
-                    map.map[x][y].setAmountOfOre(oreAmount.equalsIgnoreCase("?") ? 0 : Integer.parseInt(oreAmount));
-                    map.map[x][y].setIsHole(isHole);
+            ms = sc.nextInt();
+            es = sc.nextInt();
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    String oreRead = sc.next();
+                    int oreAmount = oreRead.equalsIgnoreCase("?") ? 0 : Integer.parseInt(oreRead);
+                    oreMap[x][y] = assignedOreMap[x][y] = oreAmount;
+                    holeMap[x][y] = Integer.parseInt(sc.next());
                 }
             }
 
             int entityCount = sc.nextInt();
-            int radarCooldown = sc.nextInt();
-            int trapCooldown = sc.nextInt();
-            int own_robot_index = 0;
-            int enemy_robot_index = 0;
+            int radarCountdown = sc.nextInt();
+            int trapCountdown = sc.nextInt();
+            int own_robot_count = 0;
             for (int i = 0; i < entityCount; i++) {
                 int entityId = sc.nextInt();
                 EntityType entityType = EntityType.values()[sc.nextInt()];
-                int x = sc.nextInt();
-                int y = sc.nextInt();
-                Item item = Item.values()[Math.abs(sc.nextInt()) - 1];
-                switch (entityType) {
-                    case Own_Robot:
-//                        own_robots[own_robot_index++] = new Robot(map, entityId, entityType, new Vector(x, y), item, radarCooldown, trapCooldown);
-                        own_robots[own_robot_index++].updateInformation(map, entityId, entityType, new Vector(x, y), item, radarCooldown, trapCooldown);
-                        break;
-                    case Enemy_Robot:
-                        enemy_robots[enemy_robot_index++] = new Robot(map, entityId, entityType, new Vector(x, y), item, radarCooldown, trapCooldown);
-                        break;
-
+                Vector pos = new Vector(sc.nextInt(), sc.nextInt());
+                Item carrying = Item.values()[Math.abs(sc.nextInt()) - 1];
+                if (entityType == EntityType.BURIED_RADAR) {
+                    radarMap[pos.getX()][pos.getY()] = 1;
+                    updateRadarCoverageMap(grid, RADAR_DIST, pos);
+                    continue;
+                } else if (entityType == EntityType.BURIED_TRAP) {
+                    trapMap[pos.getX()][pos.getY()] = 1;
+                    continue;
+                } else if (entityType == EntityType.OWN_ROBOT) {
+                    own_robots[own_robot_count++].updateValues(entityId, entityType, pos, carrying);
                 }
+                Entity entity = new Entity(entityId, entityType, pos, carrying);
             }
-            int it = 0;
-            String[] moves = new String[amountOfRobots];
+            updateEnemyHoleMap(enemyPos, preEnemyPos, grid);
+            grid.updateMaps(oreMap, holeMap, trapMap, assignedOreMap, radarMap, radarCoverageMap, enemyHoleMap, isInsideRadar);
             for (Robot r : own_robots) {
-//                String move = r.getMove(it++);
-//                System.out.println(move.equalsIgnoreCase("") ? "WAIT" : move);
-                moves[it] = r.getMove(it++);
+                String move = r.getMove(own_robots, radarCountdown, trapCountdown, grid);
+                System.out.println(move);
             }
-            for (String s : moves) {
-                System.out.println(s);
-            }
-            System.err.println("Amount of visible ore: " + map.getAmountOfVisibleOre());
-
-            if (currentTick > 4000) {
-                return;
-            }
+            System.arraycopy(enemyPos, 0, preEnemyPos, 0, enemyPos.length);
         }
-
 
     }
 
-
-    static class Robot extends Entity {
-
-        Robot(Grid map, int entityID, EntityType entityType, Vector position, Item item, int radarCountdown, int trapCountdown) {
-            super(map, entityID, entityType, position, item, radarCountdown, trapCountdown);
+    static int getAmountOfNewRadarCoverage(Grid grid, int dist, Vector pos) {
+        int[][] copyMap = new int[w][h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                copyMap[x][y] = grid.getMap(MapType.insideRadar)[x][y];
+            }
         }
-
-
-        boolean isDead() {
-            return position.toString().equalsIgnoreCase("-1 -1");
+        int amount = 0;
+        for (int xi = -dist; xi <= dist; xi++) {
+            for (int yi = -dist; yi <= dist; yi++) {
+                Vector xyi = new Vector(clamp(pos.getX() + xi, 0, w - 1), clamp(pos.getY() + yi, 0, h - 1));
+                if (copyMap[xyi.getX()][xyi.getY()] == 0 && Vector.getDistance(xyi, pos) <= dist) {
+                    amount++;
+                    copyMap[xyi.getX()][xyi.getY()] = 1;
+                }
+            }
         }
+        return amount;
+    }
 
-        boolean needsRadar(int amountOfVisibleOre, int radarCountdown, int closestRobotMovesToSpawn) {
-            boolean anyRobotHasRadar = false;
-//            for (Robot r : own_robots) {
-//                System.err.println(r.item);
-//                if (r.isDead())
-//                    continue;
-//                if (r.item == Item.Radar || r.move.reason == Reasoning.radar) {
-//                    anyRobotHasRadar = true;
-//                    break;
-//                }
+    static void updateRadarCoverageMap(Grid grid, int dist, Vector destination) {
+
+        for (int xi = -dist; xi <= dist; xi++) {
+            for (int yi = -dist; yi <= dist; yi++) {
+                Vector xyi = new Vector(clamp(destination.getX() + xi, 0, w - 1), clamp(destination.getY() + yi, 0, h - 1));
+                if (Vector.getDistance(destination, xyi) <= dist) {
+                    grid.getMap(MapType.insideRadar)[xyi.getX()][xyi.getY()] = 1;
+                }
+            }
+        }
+        int[][] newRadarCoverage = new int[w][h];
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                Vector ij = new Vector(i, j);
+                if (Vector.getDistance(destination, ij) <= dist * 2) {
+                    newRadarCoverage[i][j] = getAmountOfNewRadarCoverage(grid, dist, ij);
+                } else {
+                    newRadarCoverage[i][j] = getValueFromTDArrayCapped(grid.getMap(MapType.radarCoverage), ij);
+                }
+            }
+        }
+        grid.updateSpecific(newRadarCoverage, MapType.radarCoverage);
+    }
+
+//    static Vector getBestRadarPosition(Grid grid) {
+//        int[] x = {4, 10, 15, 16, 16, 21, 22, 25, 25};
+//        int[] y = {7, 9, 7, 11, 3, 8, 13, 7, 11};
+//
+//        Vector[] vecs = new Vector[] {
+//                new Vector(4, 7),
+//                new Vector(10, 9),
+//                new Vector(15, 7),
+//                new Vector(16, 11),
+//                new Vector(16, 3),
+//                new Vector(21, 8),
+//                new Vector(22, 13),
+//                new Vector(25, 7),
+//                new Vector(25, 11),
+//        };
+//
+//        for(Vector v : vecs) {
+//            if(getValueFromTDArrayCapped(grid.getMap(MapType.radar), v) == 0) {
+//                return v;
 //            }
+//        }
+//        return new Vector(-1, -1);
+//    }
 
-            for (Robot r : own_robots) {
-                if (r.isDead())
-                    continue;
-                if (r.move.reason == Reasoning.radar) {
-                    anyRobotHasRadar = true;
-                    break;
+    static Vector getBestRadarPosition(Grid grid) {
+        Vector best = new Vector(-1, -1);
+        int amount = 0;
+
+        for (int x = 0; x < w; x++) {
+            for (int y = 0; y < h; y++) {
+
+                int yo = (h / 2) + (int) (Math.pow(-1, y) * ((y + 1) / 2));
+                Vector xy = new Vector(x, yo);
+                int curAmount = getValueFromTDArrayCapped(grid.getMap(MapType.radarCoverage), xy);
+                if (amount < curAmount && getValueFromTDArrayCapped(grid.getMap(MapType.radar), xy) == 0 && getValueFromTDArrayCapped(grid.getMap(MapType.enemyHole), xy) == 0) {
+                    System.out.println(x + " " + y);
+                    best = xy;
+                    amount = curAmount;
                 }
             }
-
-            return !anyRobotHasRadar && amountOfVisibleOre < 5 && radarCountdown <= closestRobotMovesToSpawn;
         }
+//        printMap(grid.getMap(MapType.radarCoverage));
+        return best;
+    }
 
-        boolean needsTrap(int trapCountdown, int closestRobotMovesToSpawn) {
-            boolean anyRobotHasTrap = false;
-            for (Robot r : own_robots) {
-                if (r.isDead())
-                    continue;
-                if (r.item == Item.Trap) {
-                    anyRobotHasTrap = true;
-                    break;
+
+    static void updateEnemyHoleMap(Vector[] enemyPos, Vector[] preEnemyPos, Grid grid) {
+        for (int i = 0; i < enemyPos.length; i++) {
+            if (enemyPos[i].toString().equalsIgnoreCase("-1 -1") || preEnemyPos[i].toString().equalsIgnoreCase("-1 -1"))
+                continue;
+            int dist = Vector.getDistance(enemyPos[i], preEnemyPos[i]);
+            if (dist == 0) {
+                for (Vector v : getInReachVectors(enemyPos[i])) {
+                    int xi = clamp(v.getX(), 0, w - 1);
+                    int yi = clamp(v.getY(), 0, h - 1);
+                    if (grid.getMap(MapType.hole)[xi][yi] == 1) {
+                        grid.getMap(MapType.enemyHole)[xi][yi] = 1;
+                    }
                 }
             }
-            return !anyRobotHasTrap && trapCountdown <= closestRobotMovesToSpawn;
+        }
+    }
+
+    static void printMap(int[][] map) {
+        for (int j = 0; j < h; j++) {
+            for (int i = 0; i < w; i++) {
+                System.err.print(map[i][j] + "  ");
+            }
+            System.err.println();
+        }
+    }
+
+    static void printBooleanMap(boolean[][] map) {
+        for (int j = 0; j < h; j++) {
+            for (int i = 0; i < w; i++) {
+                System.err.print(map[i][j] ? "1" : "0");
+            }
+            System.err.println();
+        }
+    }
+
+
+    public static class Grid {
+        ArrayList<MapVar> maps = new ArrayList<>();
+        public int width, height;
+
+        public Grid(int[][]... maps) {
+            this.width = w;
+            this.height = h;
+            updateMaps(maps);
         }
 
+        public Grid(boolean empty) {
+            this.width = 30;
+            this.height = 15;
+            if (empty) {
+                updateMaps(new int[w][h], new int[w][h], new int[w][h], new int[w][h], new int[w][h], new int[w][h], new int[w][h], new int[w][h]);
+            }
+        }
 
-        Vector bestRadarPosition() {
-            int[] x = {4, 10, 15, 16, 16, 21, 22, 25, 25};
-            int[] y = {7, 9, 7, 11, 3, 8, 13, 7, 11};
+        public void updateSpecific(int[][] map, MapType mapType) {
+            this.maps.remove(mapType.occurrence);
+            this.maps.add(mapType.occurrence, new MapVar(mapType, map));
+        }
 
-            for (int i = 0; i < x.length; i++) {
-                if (!map.map[x[i]][y[i]].hasRadar) {
-                    return new Vector(x[i], y[i]);
+        public void updateMaps(int[][]... maps) {
+            this.maps.clear();
+            this.maps.add(new MapVar(MapType.ore, maps[MapType.ore.occurrence]));
+            this.maps.add(new MapVar(MapType.hole, maps[MapType.hole.occurrence]));
+            this.maps.add(new MapVar(MapType.trap, maps[MapType.trap.occurrence]));
+            this.maps.add(new MapVar(MapType.assigned, maps[MapType.assigned.occurrence]));
+            this.maps.add(new MapVar(MapType.radar, maps[MapType.radar.occurrence]));
+            this.maps.add(new MapVar(MapType.radarCoverage, maps[MapType.radarCoverage.occurrence]));
+            this.maps.add(new MapVar(MapType.enemyHole, maps[MapType.enemyHole.occurrence]));
+            this.maps.add(new MapVar(MapType.insideRadar, maps[MapType.insideRadar.occurrence]));
+        }
+
+        public int[][] getMap(MapType type) {
+            for (MapVar cur : maps) {
+                if (cur.type.equals(type)) {
+                    return cur.map;
                 }
             }
-
-            return new Vector(1, 1);
-        }
-
-        Vector bestTrapPosition() {
             return null;
         }
 
-        Robot closestRobotToSpawn() {
-            int distanceToSpawn = -1;
-            Robot closest = null;
-            for (Robot r : own_robots) {
-                if (r.isDead())
-                    continue;
+    }
 
-                if (distanceToSpawn == -1 || distanceToSpawn > r.position.getX()) {
-                    distanceToSpawn = r.position.getX();
+    static class MapVar {
+        public MapType type;
+        public int[][] map;
+
+        MapVar(MapType type, int[][] map) {
+            this.type = type;
+            this.map = map;
+        }
+
+    }
+
+    enum MapType {
+        ore(0), hole(1), assigned(3), trap(2), radar(4), radarCoverage(5), enemyHole(6), insideRadar(7);
+        int occurrence;
+
+        MapType(int occurrence) {
+            this.occurrence = occurrence;
+        }
+    }
+
+    enum Item {
+        NOTHING, RADAR, TRAP, ORE
+    }
+
+    enum EntityType {
+        OWN_ROBOT, ENEMY_ROBOT, BURIED_RADAR, BURIED_TRAP
+    }
+
+    public static class Entity {
+        protected int entityId;
+        protected EntityType entityType;
+        protected Vector pos;
+        protected Item item;
+
+        public Entity(int entityId, EntityType entityType, Vector pos, Item item) {
+            init(entityId, entityType, pos, item);
+        }
+
+        void init(int entityId, EntityType entityType, Vector pos, Item item) {
+            this.entityId = entityId;
+            this.entityType = entityType;
+            this.pos = pos;
+            this.item = item;
+        }
+
+    }
+
+    public static class Robot extends Entity {
+
+
+        public Robot(int entityId, EntityType entityType, Vector pos, Item item) {
+            super(entityId, entityType, pos, item);
+        }
+
+        public void updateValues(int entityId, EntityType entityType, Vector pos, Item item) {
+            init(entityId, entityType, pos, item);
+        }
+
+
+        private String move__move(Entity source, Vector pos) {
+            if (pos.toString().equalsIgnoreCase(this.pos.toString())) {
+                return move__dig(source, pos);
+            }
+            return "MOVE " + pos.toString();
+        }
+
+        private String move__dig(Entity source, Vector pos) {
+            return "DIG " + pos.toString();
+        }
+
+        private String move__request(Entity source, String type) {
+            return "REQUEST " + type;
+        }
+
+        private String move__wait() {
+            return "WAIT";
+        }
+
+        /**
+         *
+         * @param destination
+         * @return
+         */
+        private Vector getNextMove(Vector destination) {
+            int xDifToClosest = pos.getX() - destination.getX();
+            int yDifToClosest = pos.getY() - destination.getY();
+            int xMovesMade = Math.min(MAX_MOVE_DISTANCE, xDifToClosest);
+            int maxYMoves = Math.min(MAX_MOVE_DISTANCE - xMovesMade, Math.min(MAX_MOVE_DISTANCE, yDifToClosest));
+            return new Vector(pos.getX() - xMovesMade, pos.getY() - maxYMoves);
+        }
+
+        public String getMove(Robot[] own_robots, int radarCountdown, int trapCountdown, Grid grid) {
+            double radarDesire = getRadarDesire(grid, own_robots, radarCountdown);
+            if (pos.toString().equalsIgnoreCase("-1 -1")) {
+                return move__wait();
+            }
+
+            if (item == Item.RADAR) {
+                if (!getBestRadarPosition(grid).toString().equalsIgnoreCase("-1 -1")) {
+                    return getRadarMove(grid);
+                }
+            }
+            if (item == Item.ORE) {
+                return move__move(this, getNextMove(new Vector(0, pos.getY())));
+            }
+            Vector firstNonHole = new Vector(-1, -1);
+            for (int i = THRESHOLD; i < w; i++) {
+                if (grid.getMap(MapType.hole)[i][pos.getY()] == 0) {
+                    firstNonHole = new Vector(i, pos.getY());
+                    break;
+                }
+            }
+
+            if (radarDesire > 0.4) {
+                Robot closestToSpawn = closestToSpawn(own_robots);
+                if (this == closestToSpawn)
+                    return getRadar();
+            }
+
+            int amountOfOre = getSumOfTDArray(grid.getMap(MapType.assigned));
+            if (amountOfOre > 0) {
+                Vector bestOreLocation = closestOrePatch(grid.getMap(MapType.assigned), 4, grid);
+                if (bestOreLocation == null) {
+                    Vector bestNonHole = closestNonHoleVector(grid.getMap(MapType.assigned), 4);
+                    if (bestNonHole == null) {
+                        return getRandomMove(firstNonHole, grid);
+                    }
+                    return getRandomMove(bestNonHole, grid);
+                }
+                if (Vector.getDistance(bestOreLocation, pos) <= 4) {
+                    grid.getMap(MapType.assigned)[bestOreLocation.getX()][bestOreLocation.getY()]--;
+                    if (Vector.getDistance(bestOreLocation, pos) <= 1) {
+                        return move__dig(this, bestOreLocation);
+                    }
+                }
+                return move__move(this, getNextMove(bestOreLocation));
+            }
+            return getRandomMove(firstNonHole, grid);
+
+
+        }
+
+        String getRadarMove(Grid grid) {
+            Vector bestSpot = getBestRadarPosition(grid);
+            return move__move(this, getNextMove(bestSpot));
+
+        }
+
+        String getRadar() {
+            if (pos.getX() == 0) {
+                return move__request(this, "RADAR");
+            } else {
+                return move__move(this, getNextMove(new Vector(0, pos.getY())));
+            }
+        }
+
+        double getRadarDesire(Grid grid, Robot[] own_robots, int countdown) {
+            for (Robot r : own_robots) {
+                if (r.item == Item.RADAR) {
+                    return 0;
+                }
+            }
+            Robot closest = closestToSpawn(own_robots);
+            double ticksToSpawn = (int) Math.ceil((double) closest.pos.getX() / (double) countdown);
+            return (double) 1 / clamp(getSumOfTDArray(grid.getMap(MapType.assigned)), 1, 4);
+        }
+
+        Vector closestOrePatch(int[][] map, int maxSteps, Grid grid) {
+            int curmoveindex = 0;
+            Vector cur = pos;
+            for (int i = 0; i < (MAX_MOVE_DISTANCE * MAX_MOVE_DISTANCE) * maxSteps; i++) {
+                for (int k = 0; k < 2; k++) {
+                    for (int j = 0; j < i; j++) {
+                        cur.add(directions.values()[curmoveindex].add);
+                        int xi = Math.max(0, Math.min(cur.getX(), w - 1));
+                        int yi = Math.max(0, Math.min(cur.getY(), h - 1));
+
+                        if (map[xi][yi] > 0 && grid.getMap(MapType.enemyHole)[xi][yi] == 0) {
+                            return new Vector(xi, yi);
+                        }
+                    }
+                    curmoveindex++;
+                    curmoveindex = curmoveindex % directions.values().length;
+                }
+            }
+
+            return null;
+        }
+
+
+        Vector closestNonHoleVector(int[][] map, int maxSteps) {
+            int curmoveindex = 0;
+            Vector cur = pos;
+            for (int i = 0; i < (MAX_MOVE_DISTANCE * MAX_MOVE_DISTANCE) * maxSteps; i++) {
+                for (int k = 0; k < 2; k++) {
+                    for (int j = 0; j < i; j++) {
+                        cur.add(directions.values()[curmoveindex].add);
+                        int isHole = map[Math.max(0, Math.min(cur.getX(), w - 1))][Math.max(0, Math.min(cur.getY(), h - 1))];
+                        if (isHole == 0) {
+                            return cur;
+                        }
+                    }
+                    curmoveindex++;
+                    curmoveindex = curmoveindex % directions.values().length;
+                }
+            }
+
+            return null;
+        }
+
+        enum directions {
+            left("L", new Vector(-1, 0)), up("U", new Vector(0, 1)), right("R", new Vector(1, 0)), down("D", new Vector(0, -1));
+            String n;
+            Vector add;
+
+            directions(String n, Vector add) {
+                this.n = n;
+                this.add = add;
+            }
+        }
+
+        Robot closestToSpawn(Robot[] own_robots) {
+            Robot closest = own_robots[0];
+            for (Robot r : own_robots) {
+                if (r.pos.toString().equalsIgnoreCase("-1 -1")) {
+                    continue;
+                }
+                if (r.pos.getX() < closest.pos.getX()) {
                     closest = r;
                 }
             }
             return closest;
+
         }
 
 
-        String move_request(String type) {
-            return "REQUEST " + type;
-        }
-
-        String move_move(Vector position) {
-            return "MOVE " + position.toString();
-        }
-
-        String move_dig(Vector position) {
-            System.err.println("Trying to dig with the following item: " + item);
-            return "DIG " + position.toString();
-        }
-
-        String move_wait() {
-            return "WAIT";
-        }
-
-        Vector getNextMove(Vector destination) {
-
-            int xDifToClosest = position.getX() - destination.getX();
-            int yDifToClosest = position.getY() - destination.getY();
-            int xMovesMade = Math.min(maxMoveSteps, xDifToClosest);
-            int maxYMoves = Math.min(maxMoveSteps - xMovesMade, Math.min(maxMoveSteps, yDifToClosest));
-            return new Vector(position.getX() - xMovesMade, position.getY() - maxYMoves);
-        }
-
-        String getMove(int iterator) {
-
-            if (isDead())
-                return move_wait();
-            if (item == Item.Ore) {
-                return move_move(getNextMove(new Vector(0, position.getY())));
-            } else if (item == Item.Radar || item == Item.Trap) {
-                if (position.toString().equalsIgnoreCase(move.desiredPosition.toString()))
-                    return move_dig(position);
-                else
-                    return move_move(getNextMove(move.desiredPosition));
+        String getRandomMove(Vector firstNonHole, Grid grid) {
+            if (pos.getX() >= w - 1 || pos.getX() < THRESHOLD) {
+                return move__move(this, new Vector(THRESHOLD, (pos.getY() + 1) % h));
             }
-
-
-            if (move.hasMove()) {
-                if (position.toString().equalsIgnoreCase(move.desiredPosition.toString())) {
-                    return move_dig(position);
-                } else {
-                    if (move.reason == Reasoning.radar) {
-                        if (item == Item.Nothing && position.getX() != 0) {
-                            return move_move(getNextMove(new Vector(0, position.getY())));
-                        } else if (item == Item.Nothing && position.getX() == 0) {
-                            return move_request("RADAR");
-                        }
-                    } else {
-                        return move_move(getNextMove(move.desiredPosition));
-                    }
+            Vector[] inReach = getInReachVectors(pos);
+            for (Vector v : inReach) {
+                if (getValueFromTDArrayCapped(grid.getMap(MapType.hole), v) == 0 && getValueFromTDArrayCapped(grid.getMap(MapType.enemyHole), v) == 0) {
+                    return move__dig(this, v);
                 }
             }
-
-            Robot closestToSpawn = closestRobotToSpawn();
-            for (Robot r : own_robots) {
-                if (r.move.hasMove()) {
-                    if (r.move.reason == Reasoning.ore) {
-                        tickMap.map[r.position.getX()][r.position.getY()].reduceOreAmount(1);
-                    }
-                }
-            }
-            int amountOfVisibleOre = tickMap.amountOfVisibleOre;
-
-            if (needsRadar(amountOfVisibleOre, radarCountdown, (int) (Math.ceil((float) closestToSpawn.position.getX() / maxMoveSteps))) && closestToSpawn == this) {
-                if (position.getX() == 0) {
-                    setMove(new Move(bestRadarPosition(), Reasoning.radar, move_move(getNextMove(bestRadarPosition())), currentTick));
-                    return move_request("RADAR");
-                } else {
-
-                }
-            } else if (amountOfVisibleOre > 0) {
-                Vector orePosition = bestPositionForOre(1);
-                String curMove = move_move(getNextMove(orePosition));
-                setMove(new Move(orePosition, Reasoning.ore, curMove, currentTick));
-                return curMove;
-            } else {
-                if (position.getX() >= spawnThreshold) {
-                    Vector up, down, left, right;
-                    up = new Vector(position.getX(), position.getY() + 1);
-                    down = new Vector(position.getX(), position.getY() - 1);
-                    left = new Vector(position.getX() - 1, position.getY());
-                    right = new Vector(position.getX() + 1, position.getY());
-                    Cell curCell, upCell, downCell, leftCell, rightCell;
-
-                    curCell = tickMap.map[Math.min(0, Math.max(position.getX(), w))][Math.min(0, Math.max(position.getY(), h))];
-                    upCell = tickMap.map[Math.min(0, Math.max(up.getX(), w))][Math.min(0, Math.max(up.getY(), h))];
-                    downCell = tickMap.map[Math.min(0, Math.max(down.getX(), w))][Math.min(0, Math.max(down.getY(), h))];
-                    leftCell = tickMap.map[Math.min(0, Math.max(left.getX(), w))][Math.min(0, Math.max(left.getY(), h))];
-                    rightCell = tickMap.map[Math.min(0, Math.max(right.getX(), w))][Math.min(0, Math.max(right.getY(), h))];
-
-                    if (!curCell.isHole && !curCell.visited) {
-                        curCell.setVisited(true);
-                        return move_dig(position);
-                    } else if (!upCell.isHole && !upCell.visited && !up.toString().equalsIgnoreCase(position.toString())) {
-                        upCell.setVisited(true);
-                        return move_dig(up);
-                    } else if (!downCell.isHole && !downCell.visited && !down.toString().equalsIgnoreCase(position.toString())) {
-                        downCell.setVisited(true);
-                        return move_dig(down);
-                    } else if (!leftCell.isHole && !leftCell.visited && !left.toString().equalsIgnoreCase(position.toString())) {
-                        leftCell.setVisited(true);
-                        return move_dig(left);
-                    } else if (!rightCell.isHole && !rightCell.visited && !right.toString().equalsIgnoreCase(position.toString())) {
-                        rightCell.setVisited(true);
-                        return move_dig(right);
-                    } else {
-                        return move_move(getNextMove(new Vector(position.getX() + 2, position.getY())));
-                    }
-                } else {
-                    return move_move(getNextMove(new Vector(position.getX() + spawnThreshold, position.getY())));
-                }
-            }
-
-
-            return move_wait();
-        }
-
-
-        Vector bestPositionForOre(int maxSteps) {
-            int curmoveindex = 0;
-            Vector cur = position;
-            for (int i = 0; i < (maxMoveSteps * maxMoveSteps) * maxSteps; i++) {
-                for (int j = 0; j < i; j++) {
-                    cur.add(directions.values()[curmoveindex].add);
-                    Cell c = map.map[Math.min(0, Math.max(cur.getX(), w))][Math.min(0, Math.max(cur.getY(), h))];
-                    if (c.amountOfOre > 0 && !c.isTrapped) {
-                        return cur;
-                    }
-                }
-                curmoveindex++;
-                curmoveindex = curmoveindex % directions.values().length;
-                for (int j = 0; j < i; j++) {
-                    cur.add(directions.values()[curmoveindex].add);
-                    Cell c = map.map[Math.min(0, Math.max(cur.getX(), w))][Math.min(0, Math.max(cur.getY(), h))];
-                    if (c.amountOfOre > 0 && !c.isTrapped) {
-                        return cur;
-                    }
-                }
-                curmoveindex++;
-                curmoveindex = curmoveindex % directions.values().length;
-            }
-
-            return null;
+            return move__move(this, firstNonHole);
         }
 
 
     }
 
-    enum directions {
-        left("L", new Vector(-1, 0)), up("U", new Vector(0, 1)), right("R", new Vector(1, 0)), down("D", new Vector(0, -1));
-        String n;
-        Vector add;
-
-        directions(String n, Vector add) {
-            this.n = n;
-            this.add = add;
-        }
+    static Vector[] getInReachVectors(Vector pos) {
+        Vector[] vecs = new Vector[5];
+        vecs[0] = pos;
+        vecs[1] = new Vector(pos.getX(), pos.getY() + 1);
+        vecs[2] = new Vector(pos.getX(), pos.getY() - 1);
+        vecs[3] = new Vector(pos.getX() - 1, pos.getY());
+        vecs[4] = new Vector(pos.getX() + 1, pos.getY());
+        return vecs;
     }
 
-    enum Reasoning {
-        ore("GET ORE"), radar("GET RADAR"), random("DIG RANDOM"), trap("GET TRAP"), none("");
-        String reason;
-
-        Reasoning(String reason) {
-            this.reason = reason;
-        }
-
-    }
-
-    static class Move {
-
-        Vector desiredPosition;
-        String currentMove;
-        Reasoning reason;
-        int initTick;
-
-        Move(Vector desiredPosition, Reasoning reason, String currentMove, int initTick) {
-            this.desiredPosition = desiredPosition;
-            this.reason = reason;
-            this.currentMove = currentMove;
-            this.initTick = currentTick;
-        }
-
-        Move() {
-            this.desiredPosition = new Vector(-1, -1);
-            this.reason = Reasoning.none;
-            this.currentMove = "";
-            this.initTick = -1;
-        }
-
-        boolean hasMove() {
-            return !this.desiredPosition.toString().equalsIgnoreCase("-1 -1") || initTick != -1;
-        }
-
-
-        public String next() {
-            return "";
-        }
-    }
-
-    static abstract class Entity {
-        Grid map;
-        Grid tickMap;
-        int entityID;
-        EntityType entityType;
-        Vector position;
-        Item item;
-        int radarCountdown;
-        int trapCountdown;
-        Move move;
-
-        Entity(Grid map, int entityID, EntityType entityType, Vector position, Item item, int radarCountdown, int trapCountdown) {
-            init(map, entityID, entityType, position, item, radarCountdown, trapCountdown);
-            tickMap = new Grid(w, h);
-            for (int i = 0; i < w; i++) {
-                for (int j = 0; j < h; j++) {
-                    tickMap.map[i][j] = map.map[i][j];
-                }
-            }
-            move = new Move();
-        }
-
-
-        void updateInformation(Grid map, int entityID, EntityType entityType, Vector position, Item item, int radarCountdown, int trapCountdown) {
-            init(map, entityID, entityType, position, item, radarCountdown, trapCountdown);
-        }
-
-        private void init(Grid map, int entityID, EntityType entityType, Vector position, Item item, int radarCountdown, int trapCountdown) {
-            this.map = map;
-            this.entityID = entityID;
-            this.entityType = entityType;
-            this.position = position;
-            this.item = item;
-            this.radarCountdown = radarCountdown;
-            this.trapCountdown = trapCountdown;
-        }
-
-        void setMove(Move move) {
-            this.move = move;
-        }
-    }
-
-    static class Grid {
-
-        Cell[][] map;
-        int amountOfVisibleOre;
-
-        Grid(int width, int height) {
-            generateEmptyMap(width, height);
-            amountOfVisibleOre = 0;
-        }
-
-        void generateEmptyMap(int width, int height) {
-            this.map = new Cell[width][height];
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    map[x][y] = new Cell(new Vector(x, y));
-                }
+    static int getSumOfTDArray(int[][] map) {
+        int amount = 0;
+        for (int i = 0; i < w; i++) {
+            for (int j = 0; j < h; j++) {
+                amount += map[i][j];
             }
         }
+        return amount;
+    }
 
-        void updateMap(Vector index, Item change, int amount) {
-            switch (change) {
-                case Ore:
-                    updateOreAmount(index, amount);
-                    break;
-                case Trap:
-                    updateTrappedCell(index);
-                    break;
-                case Radar:
-                    updateRadarCell(index);
-                    break;
-            }
-        }
-
-        void updateMapCoverage() {
-            for (int y = 0; y < map[0].length; y++) {
-                for (int x = 0; x < map.length; x++) {
-                    Cell cur = map[x][y];
-                    if (!cur.hasRadar)
-                        continue;
-                    if (cur.hasRadarCoverage)
-                        continue;
-                    for (int i = (int) Math.floor((float) radarCoverageSize / 2); i < Math.ceil((float) radarCoverageSize / 2); i++) {
-                        for (int j = (int) Math.floor((float) radarCoverageSize / 2); j < Math.ceil((float) radarCoverageSize / 2); j++) {
-                            updateRadarCoverage(new Vector(x - i, y - j));
-                        }
-                    }
-                }
-            }
-        }
-
-        int getAmountOfVisibleOre() {
-            return amountOfVisibleOre;
-        }
-
-        void updateTotalOreAmount() {
-            for (int y = 0; y < map[0].length; y++) {
-                for (int x = 0; x < map.length; x++) {
-                    Cell cur = map[x][y];
-                    if (!cur.hasRadarCoverage)
-                        continue;
-                    amountOfVisibleOre += cur.amountOfOre;
-                }
-            }
-        }
-
-        void updateRadarCell(Vector position) {
-            map[position.getX()][position.getY()].setHasRadar(true);
-            updateMapCoverage();
-            updateTotalOreAmount();
-        }
-
-        void updateRadarCoverage(Vector position) {
-            map[position.getX()][position.getY()].setHasRadarCoverage(true);
-        }
-
-        void updateTrappedCell(Vector position) {
-            map[position.getX()][position.getY()].setTrapped(true);
-        }
-
-        void updateOreAmount(Vector position, int amount) {
-            map[position.getX()][position.getY()].setAmountOfOre(amount);
-        }
-
-
+    static int getValueFromTDArrayCapped(int[][] array, Vector pos) {
+        return array[Math.max(0, Math.min(pos.getX(), array.length - 1))][Math.max(0, Math.min(pos.getY(), array[0].length - 1))];
     }
 
 
-    static class Cell {
-
-        Vector position;
-        Robot[] assignedRobots;
-
-        int amountOfOre;
-        boolean isHole;
-        boolean hasRadar;
-        boolean hasRadarCoverage;
-        boolean isTrapped;
-
-        boolean visited;
-
-
-        Cell(Vector position, Robot... assignedRobots) {
-            this.position = position;
-            this.assignedRobots = assignedRobots;
-            updateInformation(0, false, false, false, false, false);
-        }
-
-        void updateInformation(int amountOfOre, boolean isHole, boolean hasRadar, boolean hasRadarCoverage, boolean isTrapped, boolean visited) {
-            this.amountOfOre = amountOfOre;
-            this.isHole = isHole;
-            this.hasRadar = hasRadar;
-            this.hasRadarCoverage = hasRadarCoverage;
-            this.isTrapped = isTrapped;
-            this.visited = visited;
-        }
-
-        void setIsHole(boolean isHole) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-        void setAmountOfOre(int amountOfOre) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-        void setTrapped(boolean isTrapped) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-
-        void setHasRadar(boolean hasRadar) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-
-        void setHasRadarCoverage(boolean hasRadarCoverage) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-        void setVisited(boolean visited) {
-            updateInformation(amountOfOre, isHole, hasRadar, hasRadarCoverage, isTrapped, visited);
-        }
-
-        public void reduceOreAmount(int amount) {
-            this.amountOfOre -= amount;
-        }
-    }
-
-
-    static int getDistance(Vector a, Vector b) {
-        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-    }
-
-    static class Vector {
+    public static class Vector implements Comparable<Vector> {
         int x, y;
 
         public Vector(int x, int y) {
@@ -591,15 +561,27 @@ class Player {
             return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
         }
 
+
+        public void add(Vector b) {
+            this.x += b.x;
+            this.y += b.y;
+        }
+
+
         @Override
         public String toString() {
             return x + " " + y;
         }
 
-        public void add(Vector v) {
-            this.x += v.x;
-            this.y += v.y;
+        @Override
+        public int compareTo(Vector o) {
+            return this.getX() == o.getX() && this.getY() == o.getY() ? 1 : 0;
         }
     }
+
+    static int clamp(int val, int min, int max) {
+        return Math.max(Math.min(max, val), min);
+    }
+
 
 }
